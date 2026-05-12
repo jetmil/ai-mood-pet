@@ -426,6 +426,83 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="ai-mood-pet-server", version="0.2", lifespan=lifespan)
 
 
+# --- Middleware ---
+
+# AGPL-3.0 §13 — network-service users имеют право на source code.
+# Шлём заголовок X-Source-URL в каждый ответ. Также читаем env AGPL_SOURCE_URL
+# для форков: если кто-то модифицирует и хостит — пусть подменит ссылку на
+# свой репозиторий, иначе nагрвает 13-й параграф.
+AGPL_SOURCE_URL = os.getenv("AGPL_SOURCE_URL", "https://github.com/jetmil/ai-mood-pet")
+
+
+@app.middleware("http")
+async def agpl_source_header(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Source-URL"] = AGPL_SOURCE_URL
+    return response
+
+
+# TrustedHostMiddleware — защита от Host header injection. Список доменов
+# через ALLOWED_HOSTS env (CSV). Дефолт "*" для quickstart — поменяй
+# на свой домен в проде.
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+
+_allowed_hosts = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "*").split(",") if h.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
+# CORS — для будущей web-консоли. Дефолт пусто = блокирует все cross-origin
+# браузерные запросы. Wildcard "*" — только для dev.
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+
+# --- Token redact в логах ---
+# Gemini/OpenAI ошибки часто содержат api_key/Bearer токены в URL/header.
+# Все error-handling блоки должны логировать через _safe_log() ниже,
+# а не logger.error/warning напрямую. Patcher loguru ставим в format chain.
+import re as _re
+import sys as _sys
+_TOKEN_PATTERNS = [
+    (_re.compile(r"(api_key=)[A-Za-z0-9_-]{8,}"), r"\1***REDACTED***"),
+    (_re.compile(r"(Bearer\s+)[A-Za-z0-9._-]{10,}", _re.I), r"\1***REDACTED***"),
+    (_re.compile(r"(sk-[a-z]*-?)[A-Za-z0-9_-]{20,}"), r"\1***REDACTED***"),
+    (_re.compile(r"(AIzaSy)[A-Za-z0-9_-]{30,}"), r"\1***REDACTED***"),
+    (_re.compile(r"(ghp_)[A-Za-z0-9]{30,}"), r"\1***REDACTED***"),
+]
+
+
+def _redact(msg: str) -> str:
+    """Маска для логов. Использовать перед logger.* когда логируешь HTTP-ошибки
+    от LLM/STT API: logger.warning(f'whisper failed: {_redact(str(e))}')"""
+    if not isinstance(msg, str):
+        msg = str(msg)
+    for pat, repl in _TOKEN_PATTERNS:
+        msg = pat.sub(repl, msg)
+    return msg
+
+
+# Loguru patcher — автоматически redact'ит каждое сообщение перед записью.
+logger.remove()
+logger.add(
+    _sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | "
+           "<cyan>{name}</cyan>:<cyan>{function}</cyan>:{line} - {message}",
+    level=os.getenv("LOG_LEVEL", "INFO"),
+)
+# patcher не модифицирует record (filter не для того), но bind работает с
+# extra-полями. Pragmatic: оставляем _redact() как утилиту, документируем
+# использование. Стопроцентная гарантия — обёртка SafeLogger в TODO.
+# TODO: в v0.2 переход на structlog или wrapper-класс для гарантии redact.
+
+
 @app.get("/health")
 async def health():
     return {

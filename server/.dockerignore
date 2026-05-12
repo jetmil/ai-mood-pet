@@ -1,0 +1,39 @@
+# Secrets — never bake into image
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# VCS
+.git
+.gitignore
+
+# Python build/cache
+__pycache__
+*.py[cod]
+*.so
+.venv
+venv
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Voice banks / runtime data — мountnted via volume, not baked
+voice_banks/*.ogg
+voice_banks/*.env.json
+utterances/
+*.db
+*.db-wal
+*.sqlite
+logs/
+
+# LICENSE остаётся в image — AGPL-3.0 требует распространять текст
+# лицензии вместе с binary. README тоже остаётся для OCI metadata.
+
+# Editor
+.idea
+.vscode
+*.swp
+.DS_Store
