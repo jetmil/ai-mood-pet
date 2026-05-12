@@ -20,7 +20,7 @@ import os
 import re
 import time
 import wave
-from collections import deque
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +57,21 @@ try:
     MAX_HISTORY_PAIRS = int(os.getenv("HISTORY_PAIRS", "5"))
 except ValueError:
     MAX_HISTORY_PAIRS = 5
+
+# Сколько user_id'ов держим в _history одновременно. Public AGPL-self-host
+# теоретически открыт любому, кто получил AUTH_TOKEN → без cap'а злой клиент
+# (или баг в APK) может зарегать 100k user_id'ов и съесть RAM. LRU-eviction.
+try:
+    MAX_USERS_IN_MEMORY = int(os.getenv("MAX_USERS_IN_MEMORY", "500"))
+except ValueError:
+    MAX_USERS_IN_MEMORY = 500
+
+# Лимит размера одного декодированного аудио/фото base64-фрейма (байт).
+# Без cap'а одним audio_chunk_b64 на 100 MiB можно прибить процесс OOM'ом.
+try:
+    MAX_FRAME_BYTES = int(os.getenv("MAX_FRAME_BYTES", str(2 * 1024 * 1024)))
+except ValueError:
+    MAX_FRAME_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 
 # ---------- character spec (pydantic) ----------
@@ -393,12 +408,19 @@ class Turn:
 
 
 # user_id → deque of turns (MAX_HISTORY_PAIRS пар = до 2*N turns).
-_history: dict[str, deque[Turn]] = {}
+# OrderedDict ради LRU-eviction: при достижении MAX_USERS_IN_MEMORY
+# выкидываем самый давно не используемый user_id.
+_history: "OrderedDict[str, deque[Turn]]" = OrderedDict()
 
 
 def get_history(user_id: str) -> deque[Turn]:
-    if user_id not in _history:
-        _history[user_id] = deque(maxlen=MAX_HISTORY_PAIRS * 2)
+    if user_id in _history:
+        _history.move_to_end(user_id)  # LRU: помечаем как свежий
+        return _history[user_id]
+    if len(_history) >= MAX_USERS_IN_MEMORY:
+        oldest, _ = _history.popitem(last=False)
+        logger.info(f"history LRU evict: {oldest} (cap={MAX_USERS_IN_MEMORY})")
+    _history[user_id] = deque(maxlen=MAX_HISTORY_PAIRS * 2)
     return _history[user_id]
 
 
@@ -589,8 +611,17 @@ async def ws_dialog(ws: WebSocket):
                 pcm_buffer.clear()
                 seq_seen = -1
             elif mtype == "camera_frame":
+                b64 = msg.get("b64") or ""
+                if len(b64) > MAX_FRAME_BYTES * 4 // 3 + 16:
+                    await ws.send_json({"type": "error", "code": "frame_too_big"})
+                    last_camera_frame = None
+                    continue
                 try:
-                    last_camera_frame = base64.b64decode(msg.get("b64") or "")
+                    last_camera_frame = base64.b64decode(b64)
+                    if len(last_camera_frame) > MAX_FRAME_BYTES:
+                        last_camera_frame = None
+                        await ws.send_json({"type": "error", "code": "frame_too_big"})
+                        continue
                 except Exception:
                     last_camera_frame = None
             elif mtype == "audio_chunk":
@@ -598,8 +629,18 @@ async def ws_dialog(ws: WebSocket):
                 if seq <= seq_seen:
                     continue
                 seq_seen = seq
+                pcm_b64 = msg.get("pcm_b64") or ""
+                if len(pcm_b64) > MAX_FRAME_BYTES * 4 // 3 + 16:
+                    await ws.send_json({"type": "error", "code": "frame_too_big"})
+                    pcm_buffer.clear()
+                    continue
+                if len(pcm_buffer) > MAX_FRAME_BYTES * 8:  # cap по совокупному pcm на одну реплику (~16 MiB raw)
+                    await ws.send_json({"type": "error", "code": "audio_buffer_overflow"})
+                    pcm_buffer.clear()
+                    seq_seen = -1
+                    continue
                 with suppress(Exception):
-                    pcm_buffer.extend(base64.b64decode(msg.get("pcm_b64") or ""))
+                    pcm_buffer.extend(base64.b64decode(pcm_b64))
                 if msg.get("is_final"):
                     frame = last_camera_frame
                     last_camera_frame = None
@@ -818,4 +859,13 @@ async def _send_reply_audio(ws: WebSocket, text: str, spec: CharacterSpec | None
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server_app:app", host="0.0.0.0", port=PORT, log_level="info")
+    # ws_max_size — cap на размер одного WebSocket-фрейма (по умолчанию
+    # websockets ставит 1 MiB, мы расширяем до MAX_FRAME_BYTES, чтобы
+    # клиент мог слать камера-кадры до 2 MiB JPEG'ом).
+    uvicorn.run(
+        "server_app:app",
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        ws_max_size=MAX_FRAME_BYTES,
+    )

@@ -785,16 +785,28 @@ class EyesViewModel(app: Application) : AndroidViewModel(app) {
             }
             // Force-recovery: всё что могло застрять после photo flow — снимаем.
             // Без этого иногда capturing/mute оставался → mic не реагировал.
+            //
+            // ВАЖНО: setMuted(false) только если TTS НЕ играет. Иначе после
+            // snapshot во время реплики питомца микрофон ловит его собственный
+            // голос → acoustic feedback loop. В норме mute снимется автоматом
+            // в основном лупе (строки ~378-388) когда anyPlaying упадёт в false.
             try {
                 if (continuousMic.isCapturing) {
                     Log.w(TAG, "force recovery: stopUtterance after snapshot")
                     continuousMic.stopUtterance()
                 }
-                continuousMic.setMuted(false)
-                wakeWord.reset()
+                val ttsPlaying = replyAudio.isPlaying || (voicePlayer.current.value != null)
+                if (!ttsPlaying) {
+                    continuousMic.setMuted(false)
+                    wakeWord.reset()
+                    io.github.jetmil.aimoodpet.debug.DebugLog.event(
+                        io.github.jetmil.aimoodpet.debug.DebugCat.MIC, "after snapshot: state cleared")
+                } else {
+                    io.github.jetmil.aimoodpet.debug.DebugLog.event(
+                        io.github.jetmil.aimoodpet.debug.DebugCat.MIC,
+                        "after snapshot: TTS играет, mute оставлен — снимется в основном лупе")
+                }
                 _dialog.value = DialogUiState(phase = DialogPhase.Idle)
-                io.github.jetmil.aimoodpet.debug.DebugLog.event(
-                    io.github.jetmil.aimoodpet.debug.DebugCat.MIC, "after snapshot: state cleared")
             } catch (e: Throwable) {
                 Log.w(TAG, "post-snapshot recovery", e)
             }

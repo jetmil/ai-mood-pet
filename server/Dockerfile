@@ -19,4 +19,4 @@ EXPOSE 8350
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -sf http://localhost:8350/health || exit 1
 
-CMD ["uvicorn", "server_app:app", "--host", "0.0.0.0", "--port", "8350"]
+CMD ["uvicorn", "server_app:app", "--host", "0.0.0.0", "--port", "8350", "--ws-max-size", "2097152"]
