@@ -1,0 +1,45 @@
+services:
+  server:
+    build: ./server
+    container_name: ai-mood-pet-server
+    restart: unless-stopped
+    env_file:
+      - ./server/.env
+    expose:
+      - "8350"
+    networks:
+      - aimp
+
+  nginx:
+    image: nginx:alpine
+    container_name: ai-mood-pet-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certbot-www:/var/www/html:ro
+      - ./nginx/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - server
+    networks:
+      - aimp
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: ai-mood-pet-certbot
+    volumes:
+      - ./nginx/letsencrypt:/etc/letsencrypt
+      - ./nginx/certbot-www:/var/www/html
+    # Запускается вручную при первом setup, дальше cron внутри:
+    entrypoint: |
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot -w /var/www/html --quiet;
+               sleep 12h;
+             done"
+
+networks:
+  aimp:
+    driver: bridge

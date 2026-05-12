@@ -1,0 +1,57 @@
+# --- secrets ---
+*.env
+!.env.example
+.env.local
+.env.*.local
+*_api_key*
+*.key
+*.pem
+local.properties
+
+# --- Android build ---
+*.iml
+.gradle/
+.idea/
+build/
+captures/
+.externalNativeBuild
+.cxx
+*.apk
+*.ap_
+*.aab
+*.dex
+.kotlin/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+venv/
+.venv/
+*.egg-info/
+
+# --- runtime ---
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+logs/
+utterances/
+voice_banks/*.ogg
+voice_banks/*.env.json
+
+# --- ML model blobs (too big for git, see DEPLOY.md to download) ---
+*.task
+*.tflite
+*.gguf
+*.onnx
+
+# --- editor / OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- docs build ---
+docs/_build/
+docs/.docusaurus/
