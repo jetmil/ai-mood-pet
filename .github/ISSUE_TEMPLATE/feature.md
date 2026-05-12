@@ -14,4 +14,5 @@ labels: enhancement
 ## Готов сделать PR?
 
 - [ ] Да, могу написать сам
-- [ ] Нет, хочу чтобы maintainer/community
+- [ ] Нет, хочу чтобы maintainer / community подхватили
+

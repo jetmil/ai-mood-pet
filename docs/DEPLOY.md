@@ -5,10 +5,14 @@ IP, домен под него. Не нужен GPU — вся LLM-логика 
 
 ## Шаг 1. Подготовка VPS
 
-```bash
-# DNS A-record: pet.yourdomain.tld → <ваш IP>
-# (или субдомен какой угодно)
-```
+1. Зарегистрируй VPS у любого провайдера (Timeweb/Reg.ru/Aeza/Hetzner —
+   от 300₽ или €4/мес). Минимум 1 GB RAM, Ubuntu 22.04+ или Debian 12.
+2. Установи Docker + Docker Compose plugin (`curl -fsSL get.docker.com | sh`
+   на свежем Ubuntu).
+3. Открой порты 80 и 443 (`ufw allow 80,443/tcp`).
+4. В панели регистратора домена добавь **A-record** `pet.<твой-домен>` →
+   `<IP сервера>`. Подожди 5-10 минут DNS-propagation
+   (`dig pet.your-domain.tld` должен показать твой IP).
 
 ## Шаг 2. Клонировать
 
@@ -33,26 +37,33 @@ nano .env
 
 Сохрани AUTH_TOKEN отдельно — он же поедет в APK Settings.
 
-## Шаг 4. Запуск через docker-compose
+## Шаг 4. Первый запуск + Let's Encrypt
+
+**Не делай `docker compose up -d` сразу** — nginx упадёт без сертификата
+(chicken-and-egg: certbot не может выписать серт, пока nginx не отвечает
+на :80, а nginx не стартует без серта).
+
+Используй bootstrap-скрипт:
+
+```bash
+DOMAIN=pet.yourdomain.tld EMAIL=you@example.com ./scripts/init_letsencrypt.sh
+```
+
+Скрипт делает всё в правильном порядке: подменяет `<DOMAIN>` в
+`nginx/conf.d/server.conf`, кладёт временный self-signed cert чтобы nginx
+стартанул, поднимает nginx, удаляет dummy, выписывает настоящий через
+webroot, рестартит nginx.
+
+## Шаг 5. Поднять весь стек
 
 ```bash
 docker compose up -d
-docker compose logs -f tamagochi-cloud-proxy
+docker compose logs -f ai-mood-pet-server
 # должен показать "Application startup complete" + порт 8350
 ```
 
-## Шаг 5. Nginx + SSL
-
-`docker-compose.yml` поднимает nginx, но SSL нужно получить отдельно:
-
-```bash
-# в docker-compose уже есть certbot service, при первом старте:
-docker compose run --rm certbot certonly --webroot -w /var/www/html \
-    -d pet.yourdomain.tld --email you@example.com --agree-tos
-docker compose restart nginx
-```
-
-Дальше certbot auto-renew работает через cron внутри контейнера.
+Дальше certbot-контейнер сам делает `renew` каждые 12 часов внутри
+своего entrypoint-лупа — auto-renewal работает.
 
 ## Шаг 6. Проверить
 

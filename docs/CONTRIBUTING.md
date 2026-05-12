@@ -65,8 +65,7 @@ copyright на свой код, но не блокируешь dual.
 
 ## Reporting bugs / security
 
-- **Обычный баг** — open issue. Шаблон в `.github/ISSUE_TEMPLATE/bug.md`
-  (TODO добавить).
+- **Обычный баг** — open issue. Шаблон в `.github/ISSUE_TEMPLATE/bug.md`.
 - **Security vulnerability** — НЕ публичный issue. Через
   [GitHub Security Advisory](https://github.com/jetmil/ai-mood-pet/security/advisories/new)
   приватно. Или email `jetmil@proton.me`.

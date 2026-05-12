@@ -10,7 +10,7 @@
 ## Что умеет
 
 - **Многоперсонажность.** 6 готовых характеров (Мудрец, Льстец, Дикий Маугли, Стэтхем, Детский робот,
-  Злой Оптимус). У каждого свой голос, словарь, шутки. JSON-spec — добавляй своих.
+  Сердитый Бас). У каждого свой голос, словарь, шутки. JSON-spec — добавляй своих.
 - **Эмоции через лицо.** MediaPipe Face Landmarker (52 blendshape'а) → питомец зеркалит твою
   мимику с собственной поправкой по характеру.
 - **Распознавание жестов.** MediaPipe Hands → реакции на 9 жестов (палец вверх, OK, peace,
@@ -30,13 +30,19 @@
 
 ```bash
 git clone https://github.com/jetmil/ai-mood-pet
-cd ai-mood-pet/server
-cp .env.example .env
-# В .env заполнить: AUTH_TOKEN, GOOGLE_API_KEY, опционально OPENAI_API_KEY
+cd ai-mood-pet
+cp server/.env.example server/.env
+# В server/.env заполнить: AUTH_TOKEN, GOOGLE_API_KEY, опционально OPENAI_API_KEY
+
+# Bootstrap первый раз — Let's Encrypt cert + nginx:
+DOMAIN=pet.yourdomain.tld EMAIL=you@example.com ./scripts/init_letsencrypt.sh
+
+# Поднять весь стек:
 docker compose up -d
 ```
 
-Сервер на `:8350`. Nginx + SSL + DNS — см. [docs/DEPLOY.md](docs/DEPLOY.md).
+Сервер на `:8350`. Полная инструкция (DNS, troubleshooting) — см.
+[docs/DEPLOY.md](docs/DEPLOY.md).
 Минимальный VPS: 1GB RAM, Linux, публичный IP, домен. От 300₽/мес на Timeweb/Reg.ru,
 от €4/мес на Aeza/Hetzner.
 

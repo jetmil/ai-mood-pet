@@ -46,6 +46,7 @@ ls app/build/outputs/apk/debug/app-debug.apk
 cd app/src/main/assets/models/vision/
 curl -L -O https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 curl -L -O https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+curl -L -O https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/face_detector_short_range.tflite
 
 # Vosk small russian (88 MB):
 cd ../../
@@ -56,11 +57,10 @@ rm vosk-model-small-ru-0.22.zip
 ```
 
 Объектный детектор (опционально, для повышения "осведомлённости" о вещах
-в кадре):
+в кадре) — кладётся в **корень** `assets/`, не в `models/vision/`:
 ```bash
-cd models/vision/
-curl -L -O https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite
-mv efficientdet_lite0.tflite ../../efficientdet_lite0.tflite
+curl -L -o app/src/main/assets/efficientdet_lite0.tflite \
+  https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite
 ```
 
 ### Установка на устройство

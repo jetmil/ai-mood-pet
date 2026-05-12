@@ -19,38 +19,61 @@ class FaceTracker(
     context: Context,
     private val onFrame: (FaceFrame) -> Unit,
 ) {
-    private val landmarker: FaceLandmarker
+    // Nullable: если в `assets/models/vision/face_landmarker.task` модели нет
+    // (юзер не скачал по docs/ANDROID.md), `createFromOptions` бросает
+    // MediaPipeException — раньше валило весь Activity. Теперь tracker
+    // создаётся в «mute»-режиме: detectAsync — no-op, isReady=false,
+    // вызывающий код может показать баннер «models not found».
+    private val landmarker: FaceLandmarker?
+    val isReady: Boolean
+    val initError: String?
 
     init {
-        val baseOptions = BaseOptions.builder()
-            .setModelAssetPath(MODEL_PATH)
-            .setDelegate(Delegate.CPU)
-            .build()
+        var lm: FaceLandmarker? = null
+        var err: String? = null
+        try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath(MODEL_PATH)
+                .setDelegate(Delegate.CPU)
+                .build()
 
-        val options = FaceLandmarker.FaceLandmarkerOptions.builder()
-            .setBaseOptions(baseOptions)
-            .setRunningMode(RunningMode.LIVE_STREAM)
-            .setNumFaces(1)
-            .setMinFaceDetectionConfidence(0.5f)
-            .setMinFacePresenceConfidence(0.5f)
-            .setMinTrackingConfidence(0.5f)
-            .setOutputFaceBlendshapes(true)
-            .setOutputFacialTransformationMatrixes(true)
-            .setResultListener { result, _ -> handleResult(result) }
-            .setErrorListener { Log.e(TAG, "FaceLandmarker error", it) }
-            .build()
+            val options = FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setNumFaces(1)
+                .setMinFaceDetectionConfidence(0.5f)
+                .setMinFacePresenceConfidence(0.5f)
+                .setMinTrackingConfidence(0.5f)
+                .setOutputFaceBlendshapes(true)
+                .setOutputFacialTransformationMatrixes(true)
+                .setResultListener { result, _ -> handleResult(result) }
+                .setErrorListener { Log.e(TAG, "FaceLandmarker error", it) }
+                .build()
 
-        landmarker = FaceLandmarker.createFromOptions(context, options)
-        Log.i(TAG, "FaceLandmarker ready (CPU)")
+            lm = FaceLandmarker.createFromOptions(context, options)
+            Log.i(TAG, "FaceLandmarker ready (CPU)")
+        } catch (t: Throwable) {
+            err = "FaceLandmarker init failed: ${t.message ?: t::class.java.simpleName}. " +
+                "Положи модель в assets/$MODEL_PATH — см. docs/ANDROID.md."
+            Log.e(TAG, err, t)
+        }
+        landmarker = lm
+        isReady = lm != null
+        initError = err
     }
 
     fun detectAsync(bitmap: Bitmap, timestampMs: Long) {
-        val mpImage = BitmapImageBuilder(bitmap).build()
-        landmarker.detectAsync(mpImage, timestampMs)
+        val lm = landmarker ?: return
+        try {
+            val mpImage = BitmapImageBuilder(bitmap).build()
+            lm.detectAsync(mpImage, timestampMs)
+        } catch (t: Throwable) {
+            Log.w(TAG, "detectAsync skipped: ${t.message}")
+        }
     }
 
     fun close() {
-        try { landmarker.close() } catch (e: Throwable) { Log.w(TAG, "close", e) }
+        try { landmarker?.close() } catch (e: Throwable) { Log.w(TAG, "close", e) }
     }
 
     private var firstResultLogged = false

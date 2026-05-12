@@ -429,9 +429,9 @@ app = FastAPI(title="ai-mood-pet-server", version="0.2", lifespan=lifespan)
 # --- Middleware ---
 
 # AGPL-3.0 §13 — network-service users имеют право на source code.
-# Шлём заголовок X-Source-URL в каждый ответ. Также читаем env AGPL_SOURCE_URL
-# для форков: если кто-то модифицирует и хостит — пусть подменит ссылку на
-# свой репозиторий, иначе nагрвает 13-й параграф.
+# Шлём заголовок X-Source-URL в каждый ответ + поле source_url в hello_ack.
+# Форки: если кто-то модифицирует и хостит публично — обязан подменить ссылку
+# на свой репозиторий, иначе нарушает 13-й параграф.
 AGPL_SOURCE_URL = os.getenv("AGPL_SOURCE_URL", "https://github.com/jetmil/ai-mood-pet")
 
 
@@ -489,18 +489,24 @@ def _redact(msg: str) -> str:
     return msg
 
 
-# Loguru patcher — автоматически redact'ит каждое сообщение перед записью.
+# Loguru filter — модифицирует record["message"] перед format. Это
+# обязательно для AUTH-токенов в exception-стектрейсах от google-genai/httpx,
+# которые иначе уходят в stderr с GOOGLE_API_KEY в URL.
+def _redact_filter(record):
+    msg = record.get("message")
+    if isinstance(msg, str):
+        record["message"] = _redact(msg)
+    return True
+
+
 logger.remove()
 logger.add(
     _sys.stderr,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | "
            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:{line} - {message}",
     level=os.getenv("LOG_LEVEL", "INFO"),
+    filter=_redact_filter,
 )
-# patcher не модифицирует record (filter не для того), но bind работает с
-# extra-полями. Pragmatic: оставляем _redact() как утилиту, документируем
-# использование. Стопроцентная гарантия — обёртка SafeLogger в TODO.
-# TODO: в v0.2 переход на structlog или wrapper-класс для гарантии redact.
 
 
 @app.get("/health")
@@ -542,6 +548,11 @@ async def ws_dialog(ws: WebSocket):
     last_camera_frame: bytes | None = None
     pcm_buffer = bytearray()
     seq_seen = -1
+    # Auth-gate: до hello-сообщения с валидным token обрабатываем ТОЛЬКО
+    # сам hello и ping. Все остальные типы (audio_chunk, text_input, say,
+    # camera_frame, ...) — отбиваются. Иначе AUTH_TOKEN обходится первым же
+    # не-hello фреймом — реальная дыра в auth-схеме.
+    authenticated = not AUTH_TOKEN  # пустой токен в env = open mode (dev)
     logger.info(f"ws connected from {ws.client}")
     try:
         while True:
@@ -552,11 +563,16 @@ async def ws_dialog(ws: WebSocket):
                 await ws.send_json({"type": "error", "code": "bad_json"})
                 continue
             mtype = msg.get("type")
+            if not authenticated and mtype not in ("hello", "ping"):
+                await ws.send_json({"type": "error", "code": "auth_required"})
+                await ws.close(code=1008, reason="hello first")
+                return
             if mtype == "hello":
                 if AUTH_TOKEN and msg.get("token") != AUTH_TOKEN:
                     await ws.send_json({"type": "error", "code": "bad_auth"})
                     await ws.close(code=1008, reason="bad token")
                     return
+                authenticated = True
                 user_id = msg.get("user_id") or "default"
                 style = msg.get("style") or style
                 mode = msg.get("mode") or mode
@@ -565,6 +581,9 @@ async def ws_dialog(ws: WebSocket):
                     "type": "hello_ack",
                     "ok": True,
                     "mode": mode if mode in ("default", "cloud_lite") else "default",
+                    # AGPL-3.0 §13 — публикуем source URL и в WS handshake,
+                    # не только в HTTP middleware (которое до WS не доезжает).
+                    "source_url": AGPL_SOURCE_URL,
                 })
             elif mtype == "audio_start":
                 pcm_buffer.clear()
@@ -766,9 +785,15 @@ async def _send_reply_audio(ws: WebSocket, text: str, spec: CharacterSpec | None
                 first_ms = dt_ms
             is_final = seq == len(tasks) - 1
             b64 = base64.b64encode(audio).decode("ascii")
+            # `audio_b64` — каноничное имя поля. `ogg_b64` оставлен как
+            # deprecated alias для старых клиентов до v0.2. edge-tts шлёт
+            # mp3 (audio/mpeg), Android-MediaPlayer/ExoPlayer декодит mp3
+            # нативно — расширение файла-кэша на клиенте должно быть `.mp3`,
+            # не `.ogg`. См. CHANGELOG для миграции.
             await ws.send_json({
                 "type": "reply_audio",
-                "ogg_b64": b64,
+                "audio_b64": b64,
+                "ogg_b64": b64,  # deprecated, удалится в v0.2
                 "mime": "audio/mpeg",
                 "seq": seq,
                 "final": is_final,

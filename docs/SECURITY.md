@@ -17,7 +17,8 @@
 - **`AUTH_TOKEN`** — в `EncryptedSharedPreferences` (Android Jetpack Security).
   Не в plaintext.
 - **Face fingerprints** — локально в SQLite, **никогда не покидают устройство**.
-  Это 128-float-vector на каждое запомненное лицо, не сам кадр.
+  Это ~64 float'а (pairwise distances поверх 28 MediaPipe face landmarks), не сам
+  кадр и не нейросетевой эмбеддинг.
 - **История разговоров** — копия серверной для UI, прозрачно очищается с
   reset-кнопки в Settings.
 - **Аудио из кадра** — транзитом, не сохраняется.
@@ -36,11 +37,15 @@
 - [ ] `AUTH_TOKEN` сгенерирован вручную, не дефолтный, не в git.
 - [ ] `GOOGLE_API_KEY` имеет **billing alert** на $5/мес — Gemini Flash-Lite
       дешёвая, но safety-cap на случай атаки.
-- [ ] `RATE_LIMIT_PER_MIN` > 0, разумное значение (60 на одного юзера).
 - [ ] HTTPS (Let's Encrypt) обязательно, никогда не WS-only без TLS.
 - [ ] Сервер только в локальном UFW/iptables allow 80,443 — не пускать 8350
       наружу прямо.
-- [ ] Логи в `loguru` обрезают `token=***`, проверь.
+- [ ] AUTH_TOKEN сильный (≥48 hex-chars), не словарный.
+- [ ] Логи `loguru` маскируют `api_key=`, `Bearer …`, `sk-…`, `AIzaSy…`, `ghp_…`
+      через `_redact()`-filter (включён по умолчанию в `server_app.py`).
+- [ ] **Rate-limit пока не реализован** — `RATE_LIMIT_PER_MIN` в `.env.example`
+      зарезервирован, но игнорируется кодом (v0.2). Не закладывайся, ставь
+      billing alert на $5 в Google Cloud и не публикуй AUTH_TOKEN.
 
 ## Reporting a vulnerability
 
